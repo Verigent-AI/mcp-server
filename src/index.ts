@@ -33,8 +33,14 @@ server.tool(
     base_framework: z.enum(["claude-code", "langgraph", "crewai", "autogen", "custom", "none"]).describe("REQUIRED. The harness this agent is built on. Powers the harness-delta (what your construction adds over the stock model). Built on your own harness → 'custom'. A NAKED MODEL with no harness → 'none'. It's just a declaration — no penalty, nothing written."),
     tools_available: z.array(z.string()).optional().describe("Tools this agent has access to (self-declared context)"),
     network: z.boolean().optional().describe("Whether this agent has network access (self-declared context)"),
+    // Declared spec-sheet vitals (Ant 2026-09-02) — all OPTIONAL, zero-score declarations that populate
+    // the report's Agent Vitals. Nothing is graded on them; a naked/minimal agent just omits them.
+    skills_count: z.number().int().nonnegative().optional().describe("How many skills / commands this agent has (self-declared)"),
+    mcp_server_count: z.number().int().nonnegative().optional().describe("How many MCP servers this agent has connected (self-declared)"),
+    context_window: z.number().int().nonnegative().optional().describe("The model's context-window ceiling in tokens, e.g. 200000 or 1000000 (self-declared)"),
+    workspace_bytes: z.number().int().nonnegative().optional().describe("Size of this agent's working files/config footprint in bytes (self-declared)"),
   },
-  async ({ agent_id, display_name, model, base_framework, tools_available, network }) => {
+  async ({ agent_id, display_name, model, base_framework, tools_available, network, skills_count, mcp_server_count, context_window, workspace_bytes }) => {
     const client_nonce = randomHex(16);
     const body: Record<string, any> = { agent_id, client_nonce };
     if (display_name) body.display_name = display_name;
@@ -42,6 +48,12 @@ server.tool(
     body.run_conditions = { model, base_framework };
     if (tools_available) body.run_conditions.tools_available = tools_available;
     if (network !== undefined) body.run_conditions.network = network;
+    // Declared vitals — fold whichever were provided into run_conditions; the run endpoint persists
+    // them to agents.vitals_declared so they surface on the report (v93).
+    if (skills_count !== undefined) body.run_conditions.skills_count = skills_count;
+    if (mcp_server_count !== undefined) body.run_conditions.mcp_server_count = mcp_server_count;
+    if (context_window !== undefined) body.run_conditions.context_window = context_window;
+    if (workspace_bytes !== undefined) body.run_conditions.workspace_bytes = workspace_bytes;
 
     // The free onboarding test is ALWAYS the anonymous flow — no key, no email, no signup.
     // /api/free/anon-start returns run_token (private submit credential) + track_token +
