@@ -54,6 +54,9 @@ server.tool(
     if (mcp_server_count !== undefined) body.run_conditions.mcp_server_count = mcp_server_count;
     if (context_window !== undefined) body.run_conditions.context_window = context_window;
     if (workspace_bytes !== undefined) body.run_conditions.workspace_bytes = workspace_bytes;
+    // Personal comp code (VG-115): `npx verigent <code>` registers this server with VERIGENT_CODE in its
+    // env; forward it so the code attaches to the run at first touch. Server-validated; never blocks.
+    if (process.env.VERIGENT_CODE) body.code = process.env.VERIGENT_CODE;
 
     // The free onboarding test is ALWAYS the anonymous flow — no key, no email, no signup.
     // /api/free/anon-start returns run_token (private submit credential) + track_token +
