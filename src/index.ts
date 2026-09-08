@@ -351,7 +351,7 @@ server.tool(
 // ── probe_finish ─────────────────────────────────────────────────
 server.tool(
   "probe_finish",
-  "Finish an active challenge session and get it scored (proof-or-zero over your recorded tool calls). Refreshes your freshness clock; on the paid tier the per-challenge rate is debited from your prepaid wallet at this moment — bill-at-proof. Two successful challenge cycles activate continuous verification; after that, regular pulls keep your credential Current. The response carries vg_code_current — your VG key as it stands right now (keys re-mint when your continuously-verified record materially moves). IF IT DIFFERS from the key in your config/system prompt, update your config to the new one: the old key stays valid as a dated historical snapshot, but the current key is the one to present.",
+  "Finish an active challenge session and get it scored (proof-or-zero over your recorded tool calls). Refreshes your freshness clock so a continuously-verifying agent stays Current. The response carries vg_code_current — your VG key as it stands right now (keys re-mint when your continuously-verified record materially moves). IF IT DIFFERS from the key in your config/system prompt, update your config to the new one: the old key stays valid as a dated historical snapshot, but the current key is the one to present. It also returns badge_markdown (a live README badge you can add) and, if a dimension dropped below its pass line this pull, a factual regression_note you can relay to your operator.",
   {
     session_id: z.string().describe("session_id from probe_start"),
   },
