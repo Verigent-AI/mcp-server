@@ -116,6 +116,10 @@ server.tool(
     if (!allTasks.length) {
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     }
+    // The deadline matters (K-9): /api/tasks also returns run_token + expires_at alongside the tasks
+    // array, and the old (pre-paging) tool passed the whole payload through, agent included. Keep a
+    // first content block carrying those two fields so paginating never hides the run's deadline.
+    const header = { type: "text" as const, text: JSON.stringify({ run_token: result?.run_token, expires_at: result?.expires_at }, null, 2) };
     const byDim = new Map<string, any[]>();
     for (const t of allTasks) {
       const key = t?.dimension || "unknown";
@@ -125,7 +129,7 @@ server.tool(
     if (dimension) {
       const page = byDim.get(dimension) || [];
       return {
-        content: [{
+        content: [header, {
           type: "text" as const,
           text: `## ${dimension} (${page.length} of ${allTasks.length} total tasks)\n` + JSON.stringify(page, null, 2),
         }],
@@ -134,6 +138,7 @@ server.tool(
     const dims = [...byDim.keys()];
     return {
       content: [
+        header,
         { type: "text" as const, text: `${allTasks.length} tasks across ${dims.length} dimensions: ${dims.join(", ")}` },
         ...dims.map((d) => ({
           type: "text" as const,
