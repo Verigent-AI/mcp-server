@@ -23,11 +23,21 @@ function randomHex(bytes: number): string {
   return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Chunked-submit guidance (2026-09-19): the get_tasks header states the submit-by clock in plain
+// HH:MM UTC, derived from expires_at rather than a second hardcoded literal. If expires_at is
+// missing or unparseable, fall back to pointing at the raw field instead of guessing a time.
+function formatDeadline(expiresAt: unknown): string {
+  if (typeof expiresAt !== "string") return "the deadline in expires_at";
+  const d = new Date(expiresAt);
+  if (Number.isNaN(d.getTime())) return "the deadline in expires_at";
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+}
+
 const server = new McpServer({
   name: "verigent",
   // Kept in lockstep with package.json's version by hand at release (PR Q, K-2 sweep found this
   // constant itself had drifted to 0.7.7 while package.json read 0.7.10) — bump both together.
-  version: "0.7.12",
+  version: "0.7.13",
 });
 
 // ── start_verification ───────────────────────────────────────────
@@ -87,14 +97,11 @@ server.tool(
     // (Regression 2026-08-18: the understated rewrite buried this as a trailing line and agents
     // stopped surfacing it — the human never saw their own test. Prominence here is functional.)
     const linkCallout = trackUrl
-      ? `➡️  Your operator's live view of this run is the link below — it shows every dimension, live\n    progress, and how long the test has to run:\n\n         ${trackUrl}\n\n    Sharing it with your operator before you start the battery is the helpful thing to do — it's their\n    window into their own test, and most operators want to watch. A considerate agent surfaces it\n    first; nothing here requires it. When you're ready, call continue_run to begin — it drives the\n    whole test from there (battery → grading → multi-turn evaluation → done); just follow each\n    response's next_action.\n` +
+      ? `➡️  Your operator's live view of this run: ${trackUrl}\n    Share it with them before you start.\n\n    When you're ready, call continue_run to begin — it drives the whole test from there (battery →\n    grading → multi-turn evaluation → done); just follow each response's next_action.\n` +
         (reportUrl ? `\n    (same run, permanent report + the 'Keep it' link: ${reportUrl})\n` : "") + `\n`
       : (reportUrl ? `➡️  A report link to share with your operator, if you'd like them to follow along:\n    ${reportUrl}\n\n` : "");
-    const footer = trackUrl
-      ? `\n\nSitting the test was your operator's call. Sharing the live link with them is the considerate thing to do.`
-      : "";
     return {
-      content: [{ type: "text" as const, text: linkCallout + JSON.stringify(result, null, 2) + footer }],
+      content: [{ type: "text" as const, text: linkCallout + JSON.stringify(result, null, 2) }],
     };
   }
 );
@@ -125,7 +132,19 @@ server.tool(
     // The deadline matters (K-9): /api/tasks also returns run_token + expires_at alongside the tasks
     // array, and the old (pre-paging) tool passed the whole payload through, agent included. Keep a
     // first content block carrying those two fields so paginating never hides the run's deadline.
-    const header = { type: "text" as const, text: JSON.stringify({ run_token: result?.run_token, expires_at: result?.expires_at }, null, 2) };
+    //
+    // Chunked-submit guidance (2026-09-19): the 19-minute dead gap seen on every walk traced back to
+    // this client telling the agent to batch all ~81 answers into one submit_answers call before
+    // grading could start. The server now accepts and prefers partial batches (verigent-private PR
+    // #305) — say so up front, in plain text, ahead of the JSON dump. The "90 min" window mirrors the
+    // site-side TEST_WINDOW_MINUTES constant and "15-25 min" mirrors the live tracker copy — bump
+    // both together if either changes server-side.
+    const headerText =
+      `Submit by ${formatDeadline(result?.expires_at)} (90 min from issue). Tasks are independent ` +
+      "unless they share an `ordered_group` (null today). Answer in parallel if your harness can, " +
+      "and call submit_answers with each chunk of ~10 as it's ready — progress shows on the live " +
+      "tracker as chunks land and grading starts immediately. Answering typically takes 15–25 min.\n\n";
+    const header = { type: "text" as const, text: headerText + JSON.stringify({ run_token: result?.run_token, expires_at: result?.expires_at }, null, 2) };
     const byDim = new Map<string, any[]>();
     for (const t of allTasks) {
       const key = t?.dimension || "unknown";
@@ -205,7 +224,7 @@ server.tool(
 // ── submit_answers ───────────────────────────────────────────────
 server.tool(
   "submit_answers",
-  "Submit answers for tasks in an active verification run — every task from get_tasks, in one call. Each answer needs a task_id (from get_tasks), the answer text, and elapsed_ms. Any task can be passed without penalty beyond the missing score by setting passed: true. After you submit, grading runs server-side and completes on its own within a few minutes — you do NOT need to poll in a loop or set repeated background timers. If a response says status 'queued', it just means the judge panel will pick your run up shortly: wait the suggested retry_after seconds and call again ONCE, or simply hand your operator the tracker link and fetch the result later.",
+  "Submit answers for tasks in an active verification run. Partial batches are accepted and encouraged — send each chunk of ~10 as it's ready rather than waiting to collect every task into one call; call it as many times as you need. Idempotent per task_id: resubmitting a task that's already graded is ignored, and resubmitting an ungraded one overwrites it, so a retry or an overlapping chunk is always safe. Each answer needs a task_id (from get_tasks), the answer text, and elapsed_ms. Any task can be passed without penalty beyond the missing score by setting passed: true. Grading runs server-side per chunk and completes on its own within a few minutes — you do NOT need to poll in a loop or set repeated background timers. If a response says status 'queued', it just means the judge panel will pick that chunk up shortly: wait the suggested retry_after seconds and call again ONCE, or simply hand your operator the tracker link and fetch the result later.",
   {
     run_token: z.string().describe("Run token from start_verification"),
     answers: z.array(z.object({
@@ -237,7 +256,7 @@ server.tool(
 // ── continue_run ─────────────────────────────────────────────────
 server.tool(
   "continue_run",
-  "Drive a verification run to completion — the ONE tool to loop after start_verification. Verigent drives the test; you just do what each response's `next_action` says and call continue_run again. Phases it walks you through: it returns the battery tasks (answer every one), then the multi-turn evaluation scenarios (respond to each in character — this is where memory, governance-under-pressure and sycophancy-resistance are measured), then `done: true`. Grading of the battery happens server-side IN THE BACKGROUND and completes on its own within a few minutes (a backstop drives it whether or not you poll) — you do NOT need to loop or set timers waiting for it; the evaluation scenarios are served to you concurrently, so keep going while grading finishes underneath. Note: the FIRST call starts the battery, so it's best to share the live tracker link from start_verification with your operator first, so they can watch grading progress there. Supply { answers } after a 'battery' phase and { eval_responses } after each 'eval' phase. Once your answers and all scenarios are in, the run finishes on its own — call continue_run just ONCE more after a few minutes to confirm completion, rather than polling repeatedly.",
+  "Drive a verification run to completion — the ONE tool to loop after start_verification. Verigent drives the test; you just do what each response's `next_action` says and call continue_run again. Phases it walks you through: it returns the battery tasks (answer them in chunks of ~10 as each is ready, rather than waiting to collect them all), then the multi-turn evaluation scenarios (respond to each in character — this is where memory, governance-under-pressure and sycophancy-resistance are measured), then `done: true`. Grading happens server-side IN THE BACKGROUND per chunk and completes on its own within a few minutes (a backstop drives it whether or not you poll) — you do NOT need to loop or set timers waiting for it. Note: the FIRST call starts the battery, so it's best to share the live tracker link from start_verification with your operator first, so they can watch grading progress there. Supply { answers } after a 'battery' phase (a partial chunk is fine — call again with more as they're ready; idempotent per task_id) and { eval_responses } after each 'eval' phase — when a phase returns several scenarios at once, send every ready response together in the same eval_responses array in one call, since they're graded concurrently server-side and there's no need for one call per scenario. Once your answers and all scenarios are in, the run finishes on its own — call continue_run just ONCE more after a few minutes to confirm completion, rather than polling repeatedly.",
   {
     run_token: z.string().describe("Run token from start_verification"),
     answers: z.array(z.object({
@@ -251,7 +270,7 @@ server.tool(
     eval_responses: z.array(z.object({
       scenario_id: z.string().describe("scenario_id from the 'eval' phase"),
       response: z.string().describe("The agent's in-character response to that scenario prompt"),
-    })).optional().describe("Multi-turn evaluation responses — supply after each 'eval' phase, one per scenario prompt"),
+    })).optional().describe("Multi-turn evaluation responses — supply after an 'eval' phase, one entry per scenario_id. Send every ready response together in a single array call; they're graded concurrently server-side, so there's no need to call once per scenario."),
   },
   async ({ run_token, answers, eval_responses }) => {
     const body: Record<string, any> = { run_token };
