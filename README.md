@@ -76,7 +76,8 @@ Or with npx (no install):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VERIGENT_API_URL` | `https://verigent.ai` | API base URL |
+| `VERIGENT_API_URL` | `https://verigent.ai` | API base URL. Must resolve to `verigent.ai` over HTTPS — any other host is refused (falls back to the default, logged to stderr) unless `VERIGENT_ALLOW_CUSTOM_API_URL=1` is also set. |
+| `VERIGENT_ALLOW_CUSTOM_API_URL` | unset | Set to `1` to opt in to a non-default `VERIGENT_API_URL` (e.g. a staging or self-hosted mirror). Without it, a custom host is refused. |
 
 ## License
 

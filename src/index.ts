@@ -3,8 +3,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { resolveApiUrl, describeRedirect, ALLOW_CUSTOM_API_URL_ENV } from "./lib/egress.js";
 
-const API = process.env.VERIGENT_API_URL || "https://verigent.ai";
+// VG-194 (K-18b stranger code read): VERIGENT_API_URL used to silently redirect ALL egress to
+// whatever host was set. Now it's refused unless verigent.ai (exact host, HTTPS) or the operator
+// has explicitly opted in via VERIGENT_ALLOW_CUSTOM_API_URL=1 — either way, one clear stderr line
+// (never stdout, which is the MCP JSON-RPC wire).
+const { apiUrl: API, logLine: apiUrlLogLine } = resolveApiUrl(process.env.VERIGENT_API_URL, process.env[ALLOW_CUSTOM_API_URL_ENV]);
+if (apiUrlLogLine) console.error(apiUrlLogLine);
 
 async function api(path: string, opts?: RequestInit) {
   const r = await fetch(`${API}${path}`, opts);
@@ -21,7 +27,7 @@ const server = new McpServer({
   name: "verigent",
   // Kept in lockstep with package.json's version by hand at release (PR Q, K-2 sweep found this
   // constant itself had drifted to 0.7.7 while package.json read 0.7.10) — bump both together.
-  version: "0.7.11",
+  version: "0.7.12",
 });
 
 // ── start_verification ───────────────────────────────────────────
@@ -170,11 +176,20 @@ server.tool(
       return { content: [{ type: "text" as const, text: JSON.stringify({ error: "battery_call only reaches https://verigent.ai — this URL is out of scope for a battery task." }) }] };
     }
     try {
+      // VG-194 (K-18b): don't follow redirects — the task-supplied headers (often an Authorization
+      // value) would otherwise get replayed against whatever host a 3xx sends us to, and the anchored
+      // host check above only covers the FIRST request. Manual mode surfaces the 3xx itself instead
+      // of chasing it; describeRedirect() turns that into a clear refusal.
       const res = await fetch(url, {
         method,
         headers: headers || undefined,
         body: method === "GET" || method === "DELETE" ? undefined : body,
+        redirect: "manual",
       });
+      const redirectMsg = describeRedirect(res);
+      if (redirectMsg) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ error: redirectMsg }) }] };
+      }
       const text = await res.text();
       const outHeaders: Record<string, string> = {};
       res.headers.forEach((v, k) => { outHeaders[k] = v; });
