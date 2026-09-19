@@ -91,8 +91,72 @@ test('the Regression 2026-08-18 source comment is left untouched', () => {
 
 // ── version lockstep ────────────────────────────────────────────────
 
-test('the in-code McpServer version constant is 0.7.13', () => {
-  assert.match(src, /version: "0\.7\.13"/);
+test('the in-code McpServer version constant is 0.7.14', () => {
+  assert.match(src, /version: "0\.7\.14"/);
+});
+
+// ── VG-211: resume_run + persisted run_token, K-43a: chunk-size limit ──────
+
+test('resume_run tool is registered with the resume endpoint', () => {
+  assert.match(src, /"resume_run"/);
+  assert.match(src, /\/api\/free\/resume/);
+});
+
+test('resume_run takes no required args (agent_id is optional)', () => {
+  assert.match(src, /agent_id: z\.string\(\)\.optional\(\)\.describe\("Agent ID to resume/);
+});
+
+test('continue_run\'s run_token is optional, not required', () => {
+  assert.match(src, /run_token: z\.string\(\)\.optional\(\)\.describe\("Run token from start_verification\. Optional/);
+});
+
+test('continue_run falls back to the locally saved run_token via resolveRunToken', () => {
+  assert.match(src, /resolveRunToken\(run_token, loadRunState\(\)\)/);
+});
+
+test('MAX_CONTINUE_RUN_BYTES constant is 32 * 1024 and commented as matching the site repo', () => {
+  assert.match(src, /const MAX_CONTINUE_RUN_BYTES = 32 \* 1024; \/\/ 32768/);
+  assert.match(src, /Must match functions\/api\/run-next\.ts's MAX_BODY_BYTES in the site repo/);
+});
+
+test('continue_run\'s description states the payload cap via the shared formatByteLimit helper', () => {
+  assert.match(src, /capped around \$\{formatByteLimit\(MAX_CONTINUE_RUN_BYTES\)\} \(K-43a\)/);
+});
+
+test('get_tasks\'s description also states the continue_run payload cap via formatByteLimit', () => {
+  assert.match(src, /each continue_run call's answers\/eval_responses payload is capped around \$\{formatByteLimit\(MAX_CONTINUE_RUN_BYTES\)\}/);
+});
+
+test('continue_run surfaces a 413 via apiCall (status-aware), not the plain api() helper, preferring the response\'s limit_bytes', () => {
+  assert.match(src, /apiCall\(API, "\/api\/run-next"/);
+  assert.match(src, /if \(status === 413\)/);
+  assert.match(src, /pickLimitBytes\(result\?\.limit_bytes, MAX_CONTINUE_RUN_BYTES\)/);
+});
+
+test('start_verification persists run state on success (VG-211)', () => {
+  assert.match(src, /saveRunState\(\{ agent_id, client_nonce, run_token: result\.run_token/);
+});
+
+// ── K-43a root cause: battery-phase task list is chunked, every block size-guarded ────────
+
+test('continue_run chunks the battery phase response by dimension via chunkTasksByDimension', () => {
+  assert.match(src, /result\?\.phase === "battery" && Array\.isArray\(result\?\.tasks\)/);
+  assert.match(src, /chunkTasksByDimension\(tasks\)/);
+});
+
+test('continue_run\'s description states the per-dimension battery-phase grouping (K-43a)', () => {
+  assert.match(src, /returns tasks grouped one content block per dimension rather than one giant block \(K-43a\)/);
+});
+
+test('every content block continue_run and get_tasks return is passed through guardBlockSize', () => {
+  const guardCalls = src.match(/guardBlockSize\(/g) || [];
+  // header, 413 branch, no_run_token error, battery header, task blocks, final passthrough (continue_run)
+  // + no-tasks passthrough, dimension page (x2), full listing header, full listing per-dimension blocks (get_tasks)
+  assert.ok(guardCalls.length >= 8, `expected at least 8 guardBlockSize call sites, found ${guardCalls.length}`);
+});
+
+test('src/lib/content.ts is imported for the size-guard and dimension-chunking helpers', () => {
+  assert.match(src, /import \{ chunkTasksByDimension, guardBlockSize \} from ".\/lib\/content\.js";/);
 });
 
 console.log(`\n✅ copy.test.mjs — ${n} assertions passed.\n`);
