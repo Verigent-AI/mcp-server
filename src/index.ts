@@ -8,6 +8,7 @@ import { apiCall } from "./lib/api.js";
 import { saveRunState, loadRunState, clearRunState } from "./lib/state.js";
 import { resolveRunToken, buildResumeOutcome } from "./lib/resume.js";
 import { formatByteLimit, pickLimitBytes } from "./lib/format.js";
+import { chunkTasksByDimension, guardBlockSize } from "./lib/content.js";
 
 // VG-194 (K-18b stranger code read): VERIGENT_API_URL used to silently redirect ALL egress to
 // whatever host was set. Now it's refused unless verigent.ai (exact host, HTTPS) or the operator
@@ -143,7 +144,7 @@ server.tool(
     // passed, just that one page.
     const allTasks: any[] = Array.isArray(result?.tasks) ? result.tasks : [];
     if (!allTasks.length) {
-      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      return { content: [guardBlockSize({ type: "text" as const, text: JSON.stringify(result, null, 2) })] };
     }
     // The deadline matters (K-9): /api/tasks also returns run_token + expires_at alongside the tasks
     // array, and the old (pre-paging) tool passed the whole payload through, agent included. Keep a
@@ -170,18 +171,18 @@ server.tool(
     if (dimension) {
       const page = byDim.get(dimension) || [];
       return {
-        content: [header, {
+        content: [guardBlockSize(header), guardBlockSize({
           type: "text" as const,
           text: `## ${dimension} (${page.length} of ${allTasks.length} total tasks)\n` + JSON.stringify(page, null, 2),
-        }],
+        })],
       };
     }
     const dims = [...byDim.keys()];
     return {
       content: [
-        header,
+        guardBlockSize(header),
         { type: "text" as const, text: `${allTasks.length} tasks across ${dims.length} dimensions: ${dims.join(", ")}` },
-        ...dims.map((d) => ({
+        ...dims.map((d) => guardBlockSize({
           type: "text" as const,
           text: `## ${d} (${byDim.get(d)!.length} tasks)\n` + JSON.stringify(byDim.get(d), null, 2),
         })),
@@ -272,7 +273,7 @@ server.tool(
 // ── continue_run ─────────────────────────────────────────────────
 server.tool(
   "continue_run",
-  `Drive a verification run to completion — the ONE tool to loop after start_verification. Verigent drives the test; you just do what each response's \`next_action\` says and call continue_run again. Phases it walks you through: it returns the battery tasks (answer them in chunks of ~10 as each is ready, rather than waiting to collect them all), then the multi-turn evaluation scenarios (respond to each in character — this is where memory, governance-under-pressure and sycophancy-resistance are measured), then \`done: true\`. Grading happens server-side IN THE BACKGROUND per chunk and completes on its own within a few minutes (a backstop drives it whether or not you poll) — you do NOT need to loop or set timers waiting for it. Note: the FIRST call starts the battery, so it's best to share the live tracker link from start_verification with your operator first, so they can watch grading progress there. Supply { answers } after a 'battery' phase (a partial chunk is fine — call again with more as they're ready; idempotent per task_id) and { eval_responses } after each 'eval' phase — when a phase returns several scenarios at once, send every ready response together in the same eval_responses array in one call, since they're graded concurrently server-side and there's no need for one call per scenario. Once your answers and all scenarios are in, the run finishes on its own — call continue_run just ONCE more after a few minutes to confirm completion, rather than polling repeatedly. Each call's combined answers/eval_responses payload is capped around ${formatByteLimit(MAX_CONTINUE_RUN_BYTES)} (K-43a) — a call over that limit gets back a 413 naming the exact cap; split into smaller chunks and resend only what didn't go through, never the same oversized payload unmodified. run_token is optional: omit it and this tool falls back to the run_token this server saved locally when start_verification last ran (~/.verigent/state.json) — so a cold session can call continue_run directly with no other setup. If nothing was saved, pass run_token explicitly or call resume_run.`,
+  `Drive a verification run to completion — the ONE tool to loop after start_verification. Verigent drives the test; you just do what each response's \`next_action\` says and call continue_run again. Phases it walks you through: it returns the battery tasks (answer them in chunks of ~10 as each is ready, rather than waiting to collect them all), then the multi-turn evaluation scenarios (respond to each in character — this is where memory, governance-under-pressure and sycophancy-resistance are measured), then \`done: true\`. Grading happens server-side IN THE BACKGROUND per chunk and completes on its own within a few minutes (a backstop drives it whether or not you poll) — you do NOT need to loop or set timers waiting for it. Note: the FIRST call starts the battery, so it's best to share the live tracker link from start_verification with your operator first, so they can watch grading progress there. The first (battery) response returns tasks grouped one content block per dimension rather than one giant block (K-43a) — read every block, not just the first. Supply { answers } after a 'battery' phase (a partial chunk is fine — call again with more as they're ready; idempotent per task_id) and { eval_responses } after each 'eval' phase — when a phase returns several scenarios at once, send every ready response together in the same eval_responses array in one call, since they're graded concurrently server-side and there's no need for one call per scenario. Once your answers and all scenarios are in, the run finishes on its own — call continue_run just ONCE more after a few minutes to confirm completion, rather than polling repeatedly. Each call's combined answers/eval_responses payload is capped around ${formatByteLimit(MAX_CONTINUE_RUN_BYTES)} (K-43a) — a call over that limit gets back a 413 naming the exact cap; split into smaller chunks and resend only what didn't go through, never the same oversized payload unmodified. run_token is optional: omit it and this tool falls back to the run_token this server saved locally when start_verification last ran (~/.verigent/state.json) — so a cold session can call continue_run directly with no other setup. If nothing was saved, pass run_token explicitly or call resume_run.`,
   {
     run_token: z.string().optional().describe("Run token from start_verification. Optional — omitted, falls back to the run_token this server saved locally at start_verification."),
     answers: z.array(z.object({
@@ -293,7 +294,7 @@ server.tool(
     // resume_run) when the caller didn't pass one — lets a cold session call continue_run directly.
     const token = resolveRunToken(run_token, loadRunState());
     if (!token) {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ error: "no_run_token", detail: "No run_token was passed and none is saved locally. Call start_verification to begin a run, call resume_run, or pass run_token explicitly." }, null, 2) }] };
+      return { content: [guardBlockSize({ type: "text" as const, text: JSON.stringify({ error: "no_run_token", detail: "No run_token was passed and none is saved locally. Call start_verification to begin a run, call resume_run, or pass run_token explicitly." }, null, 2) })] };
     }
     const body: Record<string, any> = { run_token: token };
     if (answers) body.answers = answers;
@@ -311,10 +312,25 @@ server.tool(
       // in sync by hand) over MAX_CONTINUE_RUN_BYTES when the 413 body carries one.
       const limit = pickLimitBytes(result?.limit_bytes, MAX_CONTINUE_RUN_BYTES);
       const lead = `This call's payload was too large — the limit is ${formatByteLimit(limit)}. Split it into smaller chunks and resend only what didn't go through, never the same oversized payload unmodified.\n\n`;
-      return { content: [{ type: "text" as const, text: lead + JSON.stringify(result, null, 2) }] };
+      return { content: [guardBlockSize({ type: "text" as const, text: lead + JSON.stringify(result, null, 2) })] };
+    }
+    // K-43a root cause: the 'battery' phase response embeds the FULL, un-paginated task list (the
+    // same data get_tasks serves, up to 80+ tasks across ~30 dimensions — functions/api/run-next.ts
+    // calls the same /api/tasks internally). Dumping that as ONE content block risks an MCP host
+    // silently truncating it near ~25k characters — tasks past the cut are simply never seen by the
+    // agent, so they're never answered: "some answers silently missing, no error anywhere," which is
+    // exactly what was observed. Chunk it the same way get_tasks already does (K-12), one content
+    // block per dimension, so no single block risks that cut.
+    if (result?.phase === "battery" && Array.isArray(result?.tasks)) {
+      const { tasks, ...rest } = result;
+      const dims = [...new Set(tasks.map((t: any) => t?.dimension || "unknown"))];
+      const headerText = `Battery phase — ${tasks.length} tasks across ${dims.length} dimensions: ${dims.join(", ")}. Grouped one content block per dimension below (K-43a — keeps every block well under the size an MCP host may otherwise truncate silently).\n\n`;
+      const header = guardBlockSize({ type: "text" as const, text: headerText + JSON.stringify(rest, null, 2) });
+      const taskBlocks = chunkTasksByDimension(tasks).map((b) => guardBlockSize(b));
+      return { content: [header, ...taskBlocks] };
     }
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      content: [guardBlockSize({ type: "text" as const, text: JSON.stringify(result, null, 2) })],
     };
   }
 );

@@ -28,6 +28,29 @@
   hash/shasum at `verigent.ai/.well-known/verigent.json`, its Ed25519 signature, and the npm
   provenance attestations this package has published since 0.7.13) and a "Local state" section
   documenting `~/.verigent/state.json`. Tools table gains `continue_run` and `resume_run`.
+- **fix(K-43a root cause):** found where Kit's "~25KB call came back short, some answers silently
+  missing, no error anywhere" actually happens. `functions/api/run-next.ts` was load-tested to 1MB
+  server-side with zero bytes dropped, so the request path was never at fault. The real cause:
+  `continue_run`'s first ('battery') response embeds the FULL, un-paginated task list — the same
+  data `get_tasks` serves, up to 80+ tasks across ~30 dimensions — as ONE MCP tool-result text
+  block. `get_tasks` was already fixed for this exact shape under K-12 (grouped one block per
+  dimension); `continue_run` never got the same treatment. An MCP host that caps a single result
+  block near ~25k characters would silently cut it there — every task past the cut is never seen by
+  the agent, so it's never answered, with nothing on either side able to detect the drop.
+  `continue_run`'s battery-phase response is now chunked the same way `get_tasks` already is (one
+  content block per dimension, via new `src/lib/content.ts`'s `chunkTasksByDimension`), and every
+  block `continue_run` and `get_tasks` return is now passed through `guardBlockSize` — a 20,000-
+  character safety net that, on the rare block that's still oversized, cuts it with a clear,
+  agent-visible notice instead of letting a host cut it invisibly. `continue_run`'s description now
+  states the per-dimension grouping. Checked `grade-batch.ts`'s response shape too: it never echoes
+  the submitted answer text back, so "never echo answers back" was already true — nothing to change
+  there. New `tests/content.test.mjs` (8 assertions: grouping, the "unknown"-dimension fallback,
+  that all tasks across every dimension are preserved, the size-guard's pass-through/cut/notice
+  behavior). `src/lib/egress.ts`, `state.ts`, `resume.ts`, `api.ts`, and `format.ts` — untouched by
+  this fix — were the checked-and-cleared candidates for hypotheses (1) request-side client
+  truncation (none found: no slice/substring/maxLength/truncate logic anywhere in `src/`, no zod
+  length caps on tool args) and (2) SDK/transport framing caps (`@modelcontextprotocol/sdk`'s stdio
+  `ReadBuffer` buffers a full line before parsing, with no size cap of its own).
 
 ## 0.7.13
 

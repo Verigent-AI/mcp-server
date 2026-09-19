@@ -137,4 +137,26 @@ test('start_verification persists run state on success (VG-211)', () => {
   assert.match(src, /saveRunState\(\{ agent_id, client_nonce, run_token: result\.run_token/);
 });
 
+// ── K-43a root cause: battery-phase task list is chunked, every block size-guarded ────────
+
+test('continue_run chunks the battery phase response by dimension via chunkTasksByDimension', () => {
+  assert.match(src, /result\?\.phase === "battery" && Array\.isArray\(result\?\.tasks\)/);
+  assert.match(src, /chunkTasksByDimension\(tasks\)/);
+});
+
+test('continue_run\'s description states the per-dimension battery-phase grouping (K-43a)', () => {
+  assert.match(src, /returns tasks grouped one content block per dimension rather than one giant block \(K-43a\)/);
+});
+
+test('every content block continue_run and get_tasks return is passed through guardBlockSize', () => {
+  const guardCalls = src.match(/guardBlockSize\(/g) || [];
+  // header, 413 branch, no_run_token error, battery header, task blocks, final passthrough (continue_run)
+  // + no-tasks passthrough, dimension page (x2), full listing header, full listing per-dimension blocks (get_tasks)
+  assert.ok(guardCalls.length >= 8, `expected at least 8 guardBlockSize call sites, found ${guardCalls.length}`);
+});
+
+test('src/lib/content.ts is imported for the size-guard and dimension-chunking helpers', () => {
+  assert.match(src, /import \{ chunkTasksByDimension, guardBlockSize \} from ".\/lib\/content\.js";/);
+});
+
 console.log(`\n✅ copy.test.mjs — ${n} assertions passed.\n`);
