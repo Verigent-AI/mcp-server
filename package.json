@@ -23,7 +23,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --no-warnings tests/egress.test.mjs && node --experimental-strip-types --no-warnings tests/copy.test.mjs && node --experimental-strip-types --no-warnings tests/state.test.mjs && node --experimental-strip-types --no-warnings tests/resume.test.mjs"
+    "test": "node --experimental-strip-types --no-warnings tests/egress.test.mjs && node --experimental-strip-types --no-warnings tests/copy.test.mjs && node --experimental-strip-types --no-warnings tests/state.test.mjs && node --experimental-strip-types --no-warnings tests/resume.test.mjs && node --experimental-strip-types --no-warnings tests/format.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0"

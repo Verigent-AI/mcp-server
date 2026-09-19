@@ -15,12 +15,15 @@
   `src/lib/api.ts` (a status-aware fetch wrapper), and `src/lib/resume.ts` (pure decision logic for
   `resume_run`'s output, unit-tested against the 200/404/410 contract without hitting the network).
 - **fix(copy) K-43a:** `continue_run`'s per-call `answers`/`eval_responses` payload is capped
-  server-side (`MAX_CONTINUE_RUN_BYTES`, currently 25,000 bytes — must match
-  `functions/api/run-next.ts` in the site repo). Both `continue_run`'s description and
-  `get_tasks`'s description now state the cap and tell the agent to split a large batch into
-  smaller chunks. A call over the limit gets back a 413 naming the exact cap; `continue_run` now
-  calls the API through a status-aware wrapper (`apiCall`) instead of the plain `api()` helper, so
-  the 413 is surfaced verbatim — the tool never retries the same oversized payload on its own.
+  server-side (`MAX_CONTINUE_RUN_BYTES = 32 * 1024`, i.e. ~32 KB / 32768 bytes — matches
+  `functions/api/run-next.ts`'s `MAX_BODY_BYTES` in the site repo). Both `continue_run`'s
+  description and `get_tasks`'s description now state the cap — via a shared `formatByteLimit()`
+  helper so "~32 KB" and "32768 bytes" always render together and in sync with the one constant. A
+  call over the limit gets back a 413 naming the exact cap; `continue_run` now calls the API
+  through a status-aware wrapper (`apiCall`) instead of the plain `api()` helper, so the 413 is
+  surfaced with a clear lead line — preferring the server's own `limit_bytes` from the 413 body over
+  the local constant when present — and the full body verbatim beneath it; the tool never retries
+  the same oversized payload on its own.
 - **docs:** README gains a "Verify what you installed" section (the pinned name/version/integrity
   hash/shasum at `verigent.ai/.well-known/verigent.json`, its Ed25519 signature, and the npm
   provenance attestations this package has published since 0.7.13) and a "Local state" section

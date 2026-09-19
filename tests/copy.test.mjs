@@ -114,22 +114,23 @@ test('continue_run falls back to the locally saved run_token via resolveRunToken
   assert.match(src, /resolveRunToken\(run_token, loadRunState\(\)\)/);
 });
 
-test('MAX_CONTINUE_RUN_BYTES constant is defined and commented as matching the site repo', () => {
-  assert.match(src, /const MAX_CONTINUE_RUN_BYTES = 25_000;/);
-  assert.match(src, /Must match functions\/api\/run-next\.ts in the site repo/);
+test('MAX_CONTINUE_RUN_BYTES constant is 32 * 1024 and commented as matching the site repo', () => {
+  assert.match(src, /const MAX_CONTINUE_RUN_BYTES = 32 \* 1024; \/\/ 32768/);
+  assert.match(src, /Must match functions\/api\/run-next\.ts's MAX_BODY_BYTES in the site repo/);
 });
 
-test('continue_run\'s description states the payload cap using the shared constant', () => {
-  assert.match(src, /capped around \$\{MAX_CONTINUE_RUN_BYTES\} bytes \(K-43a\)/);
+test('continue_run\'s description states the payload cap via the shared formatByteLimit helper', () => {
+  assert.match(src, /capped around \$\{formatByteLimit\(MAX_CONTINUE_RUN_BYTES\)\} \(K-43a\)/);
 });
 
-test('get_tasks\'s description also states the continue_run payload cap', () => {
-  assert.match(src, /each continue_run call's answers\/eval_responses payload is capped around \$\{MAX_CONTINUE_RUN_BYTES\} bytes/);
+test('get_tasks\'s description also states the continue_run payload cap via formatByteLimit', () => {
+  assert.match(src, /each continue_run call's answers\/eval_responses payload is capped around \$\{formatByteLimit\(MAX_CONTINUE_RUN_BYTES\)\}/);
 });
 
-test('continue_run surfaces a 413 via apiCall (status-aware), not the plain api() helper', () => {
+test('continue_run surfaces a 413 via apiCall (status-aware), not the plain api() helper, preferring the response\'s limit_bytes', () => {
   assert.match(src, /apiCall\(API, "\/api\/run-next"/);
   assert.match(src, /if \(status === 413\)/);
+  assert.match(src, /pickLimitBytes\(result\?\.limit_bytes, MAX_CONTINUE_RUN_BYTES\)/);
 });
 
 test('start_verification persists run state on success (VG-211)', () => {

@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { apiCall } from '../src/lib/api.ts';
 import { resolveRunToken, buildResumeOutcome } from '../src/lib/resume.ts';
+import { formatByteLimit, pickLimitBytes } from '../src/lib/format.ts';
 
 let n = 0;
 const test = async (name, fn) => { await fn(); n++; console.log(`  ok  ${name}`); };
@@ -67,7 +68,7 @@ await test('apiCall surfaces a 410 expired body with its track_url', async () =>
 });
 
 await test('apiCall surfaces a 413 chunk-too-large body verbatim, unmodified', async () => {
-  const body413 = { error: 'payload_too_large', max_bytes: 25000, detail: 'split your batch and resend only the remainder' };
+  const body413 = { error: 'payload_too_large', limit_bytes: 32768, detail: 'split your batch and resend only the remainder' };
   await withServer((req, res) => {
     res.writeHead(413, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body413));
@@ -75,6 +76,36 @@ await test('apiCall surfaces a 413 chunk-too-large body verbatim, unmodified', a
     const { status, json } = await apiCall(base, '/api/run-next', { method: 'POST', body: '{}' });
     assert.equal(status, 413);
     assert.deepEqual(json, body413);
+  });
+});
+
+await test('K-43a end-to-end: a live 413 with limit_bytes drives the exact lead line continue_run produces', async () => {
+  const MAX_CONTINUE_RUN_BYTES = 32 * 1024;
+  await withServer((req, res) => {
+    res.writeHead(413, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'payload_too_large', limit_bytes: 40960 }));
+  }, async (base) => {
+    const { status, json: result } = await apiCall(base, '/api/run-next', { method: 'POST', body: '{}' });
+    assert.equal(status, 413);
+    // Mirrors continue_run's own 413 branch in src/index.ts exactly.
+    const limit = pickLimitBytes(result?.limit_bytes, MAX_CONTINUE_RUN_BYTES);
+    const lead = `This call's payload was too large — the limit is ${formatByteLimit(limit)}. Split it into smaller chunks and resend only what didn't go through, never the same oversized payload unmodified.\n\n`;
+    assert.equal(limit, 40960); // the server's limit_bytes, NOT the local constant
+    assert.match(lead, /the limit is ~40 KB \(40960 bytes\)/);
+  });
+});
+
+await test('K-43a: when a 413 body carries no limit_bytes, the local MAX_CONTINUE_RUN_BYTES constant is used', async () => {
+  const MAX_CONTINUE_RUN_BYTES = 32 * 1024;
+  await withServer((req, res) => {
+    res.writeHead(413, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'payload_too_large' })); // no limit_bytes
+  }, async (base) => {
+    const { status, json: result } = await apiCall(base, '/api/run-next', { method: 'POST', body: '{}' });
+    const limit = pickLimitBytes(result?.limit_bytes, MAX_CONTINUE_RUN_BYTES);
+    assert.equal(status, 413);
+    assert.equal(limit, MAX_CONTINUE_RUN_BYTES);
+    assert.equal(formatByteLimit(limit), '~32 KB (32768 bytes)');
   });
 });
 
