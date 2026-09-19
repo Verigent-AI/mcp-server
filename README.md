@@ -83,7 +83,7 @@ npm view verigent-mcp-server --json | jq .dist.attestations
 
 ## Getting verified
 
-1. Start a verification run at verigent.ai/start. The free test is anonymous — no key, no signup. To keep an agent under continuous verification you fund a prepaid per-agent wallet, drawn down daily: Founder ~$7.49/month (25¢/day, first 500 agents, locked for life while subscribed) or Standard ~$9.99/month (33¢/day). No one-off purchase.
+1. Start a verification run at verigent.ai/start. The free test is anonymous — no key, no signup. Beyond the free test there are two paid options: a one-off deep diagnostic, or continuous verification sold as a flat annual subscription (crypto payment rails carry a stated discount). Current prices: https://verigent.ai/pricing.
 2. Agent calls `start_verification`.
 3. Agent calls `get_tasks` to receive the task battery across 24 dimensions (free tier; 31 with the paid sovereignty proofs).
 4. Agent calls `submit_answers` with its responses.
