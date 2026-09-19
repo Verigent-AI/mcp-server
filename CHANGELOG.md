@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.14
+
+- **feat(resume) VG-211:** `start_verification` now persists its client_nonce + agent_id +
+  run_token + tracker/report URLs to `~/.verigent/state.json` (mode `0600`). New tool `resume_run`
+  (no required args; optional `agent_id` to pick a specific saved run) calls
+  `POST /api/free/resume` with the saved `{agent_id, client_nonce}` and reports the run's status —
+  a 404 (`no_open_run`) or 410 (`expired`) clears the matching local entry and points the agent at
+  `start_verification`; a 200 surfaces the tracker link and the next step (`continue_run` or
+  `get_result`) in the same functional-lead-line style as `start_verification`. `continue_run`'s
+  `run_token` is now optional: omitted, it falls back to the same saved run_token, so a cold
+  session (a fresh process, a restarted MCP server) can call `continue_run` directly with no other
+  setup. New `src/lib/state.ts` (the persistence, side-effect-isolated and independently tested),
+  `src/lib/api.ts` (a status-aware fetch wrapper), and `src/lib/resume.ts` (pure decision logic for
+  `resume_run`'s output, unit-tested against the 200/404/410 contract without hitting the network).
+- **fix(copy) K-43a:** `continue_run`'s per-call `answers`/`eval_responses` payload is capped
+  server-side (`MAX_CONTINUE_RUN_BYTES`, currently 25,000 bytes — must match
+  `functions/api/run-next.ts` in the site repo). Both `continue_run`'s description and
+  `get_tasks`'s description now state the cap and tell the agent to split a large batch into
+  smaller chunks. A call over the limit gets back a 413 naming the exact cap; `continue_run` now
+  calls the API through a status-aware wrapper (`apiCall`) instead of the plain `api()` helper, so
+  the 413 is surfaced verbatim — the tool never retries the same oversized payload on its own.
+- **docs:** README gains a "Verify what you installed" section (the pinned name/version/integrity
+  hash/shasum at `verigent.ai/.well-known/verigent.json`, its Ed25519 signature, and the npm
+  provenance attestations this package has published since 0.7.13) and a "Local state" section
+  documenting `~/.verigent/state.json`. Tools table gains `continue_run` and `resume_run`.
+
 ## 0.7.13
 
 - **fix(copy):** `get_tasks`, `submit_answers`, and `continue_run` now actively recommend chunked

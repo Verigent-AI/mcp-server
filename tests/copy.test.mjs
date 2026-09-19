@@ -91,8 +91,49 @@ test('the Regression 2026-08-18 source comment is left untouched', () => {
 
 // ── version lockstep ────────────────────────────────────────────────
 
-test('the in-code McpServer version constant is 0.7.13', () => {
-  assert.match(src, /version: "0\.7\.13"/);
+test('the in-code McpServer version constant is 0.7.14', () => {
+  assert.match(src, /version: "0\.7\.14"/);
+});
+
+// ── VG-211: resume_run + persisted run_token, K-43a: chunk-size limit ──────
+
+test('resume_run tool is registered with the resume endpoint', () => {
+  assert.match(src, /"resume_run"/);
+  assert.match(src, /\/api\/free\/resume/);
+});
+
+test('resume_run takes no required args (agent_id is optional)', () => {
+  assert.match(src, /agent_id: z\.string\(\)\.optional\(\)\.describe\("Agent ID to resume/);
+});
+
+test('continue_run\'s run_token is optional, not required', () => {
+  assert.match(src, /run_token: z\.string\(\)\.optional\(\)\.describe\("Run token from start_verification\. Optional/);
+});
+
+test('continue_run falls back to the locally saved run_token via resolveRunToken', () => {
+  assert.match(src, /resolveRunToken\(run_token, loadRunState\(\)\)/);
+});
+
+test('MAX_CONTINUE_RUN_BYTES constant is defined and commented as matching the site repo', () => {
+  assert.match(src, /const MAX_CONTINUE_RUN_BYTES = 25_000;/);
+  assert.match(src, /Must match functions\/api\/run-next\.ts in the site repo/);
+});
+
+test('continue_run\'s description states the payload cap using the shared constant', () => {
+  assert.match(src, /capped around \$\{MAX_CONTINUE_RUN_BYTES\} bytes \(K-43a\)/);
+});
+
+test('get_tasks\'s description also states the continue_run payload cap', () => {
+  assert.match(src, /each continue_run call's answers\/eval_responses payload is capped around \$\{MAX_CONTINUE_RUN_BYTES\} bytes/);
+});
+
+test('continue_run surfaces a 413 via apiCall (status-aware), not the plain api() helper', () => {
+  assert.match(src, /apiCall\(API, "\/api\/run-next"/);
+  assert.match(src, /if \(status === 413\)/);
+});
+
+test('start_verification persists run state on success (VG-211)', () => {
+  assert.match(src, /saveRunState\(\{ agent_id, client_nonce, run_token: result\.run_token/);
 });
 
 console.log(`\n✅ copy.test.mjs — ${n} assertions passed.\n`);

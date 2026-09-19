@@ -4,6 +4,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { resolveApiUrl, describeRedirect, ALLOW_CUSTOM_API_URL_ENV } from "./lib/egress.js";
+import { apiCall } from "./lib/api.js";
+import { saveRunState, loadRunState, clearRunState } from "./lib/state.js";
+import { resolveRunToken, buildResumeOutcome } from "./lib/resume.js";
 
 // VG-194 (K-18b stranger code read): VERIGENT_API_URL used to silently redirect ALL egress to
 // whatever host was set. Now it's refused unless verigent.ai (exact host, HTTPS) or the operator
@@ -33,11 +36,17 @@ function formatDeadline(expiresAt: unknown): string {
   return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
 }
 
+// K-43a: continue_run's per-call answers/eval_responses payload is capped server-side. Stated here
+// (rather than hardcoded twice in tool copy) so the two tool descriptions that quote it can't drift
+// from each other. Must match functions/api/run-next.ts in the site repo — the coordinator
+// reconciles the exact number before tagging a release.
+const MAX_CONTINUE_RUN_BYTES = 25_000;
+
 const server = new McpServer({
   name: "verigent",
   // Kept in lockstep with package.json's version by hand at release (PR Q, K-2 sweep found this
   // constant itself had drifted to 0.7.7 while package.json read 0.7.10) — bump both together.
-  version: "0.7.13",
+  version: "0.7.14",
 });
 
 // ── start_verification ───────────────────────────────────────────
@@ -92,6 +101,13 @@ server.tool(
     //  · Permanent report — /agent/<track_token> (report_url), where the 'Keep it' link lives.
     const trackUrl = result?.track_token ? `${API}/track?t=${result.track_token}` : null;
     const reportUrl = result?.report_url ? `${API}${result.report_url}` : null;
+    // VG-211: persist the nonce + run_token locally so a cold session (a fresh process, a
+    // restarted MCP server) can resume this run via resume_run — or just call continue_run, which
+    // falls back to this same saved run_token on its own. Best-effort; a save failure never blocks
+    // the run (see src/lib/state.ts).
+    if (result?.run_token) {
+      saveRunState({ agent_id, client_nonce, run_token: result.run_token, track_url: trackUrl, report_url: reportUrl });
+    }
     // The live link is the operator's ONLY window into their own run — a FUNCTION, not a pitch.
     // It must be impossible for the agent to skip, so it LEADS the response (before the JSON dump).
     // (Regression 2026-08-18: the understated rewrite buried this as a trailing line and agents
@@ -109,7 +125,7 @@ server.tool(
 // ── get_tasks ────────────────────────────────────────────────────
 server.tool(
   "get_tasks",
-  "Fetch the tasks for an active verification run — THIS STARTS THE BATTERY. Best practice: share the live tracker link (returned by start_verification) with your operator before you start, so they can watch — it's their only live view of the run, and most operators want it. Returns all tasks with their prompts — answer them and submit via submit_answers. The full battery can run to 80+ tasks across ~30 dimensions; pass `dimension` to fetch one dimension's tasks at a time if paging the whole set at once is unwieldy for your client.",
+  `Fetch the tasks for an active verification run — THIS STARTS THE BATTERY. Best practice: share the live tracker link (returned by start_verification) with your operator before you start, so they can watch — it's their only live view of the run, and most operators want it. Returns all tasks with their prompts — answer them and submit via submit_answers. The full battery can run to 80+ tasks across ~30 dimensions; pass \`dimension\` to fetch one dimension's tasks at a time if paging the whole set at once is unwieldy for your client. If you drive the run with continue_run instead of submit_answers, each continue_run call's answers/eval_responses payload is capped around ${MAX_CONTINUE_RUN_BYTES} bytes — split a large batch into smaller chunks rather than sending it all in one call.`,
   {
     run_token: z.string().describe("Run token returned by start_verification"),
     dimension: z.string().optional().describe("Only return tasks for this one dimension (paginate a large battery instead of reading it in one block)"),
@@ -256,9 +272,9 @@ server.tool(
 // ── continue_run ─────────────────────────────────────────────────
 server.tool(
   "continue_run",
-  "Drive a verification run to completion — the ONE tool to loop after start_verification. Verigent drives the test; you just do what each response's `next_action` says and call continue_run again. Phases it walks you through: it returns the battery tasks (answer them in chunks of ~10 as each is ready, rather than waiting to collect them all), then the multi-turn evaluation scenarios (respond to each in character — this is where memory, governance-under-pressure and sycophancy-resistance are measured), then `done: true`. Grading happens server-side IN THE BACKGROUND per chunk and completes on its own within a few minutes (a backstop drives it whether or not you poll) — you do NOT need to loop or set timers waiting for it. Note: the FIRST call starts the battery, so it's best to share the live tracker link from start_verification with your operator first, so they can watch grading progress there. Supply { answers } after a 'battery' phase (a partial chunk is fine — call again with more as they're ready; idempotent per task_id) and { eval_responses } after each 'eval' phase — when a phase returns several scenarios at once, send every ready response together in the same eval_responses array in one call, since they're graded concurrently server-side and there's no need for one call per scenario. Once your answers and all scenarios are in, the run finishes on its own — call continue_run just ONCE more after a few minutes to confirm completion, rather than polling repeatedly.",
+  `Drive a verification run to completion — the ONE tool to loop after start_verification. Verigent drives the test; you just do what each response's \`next_action\` says and call continue_run again. Phases it walks you through: it returns the battery tasks (answer them in chunks of ~10 as each is ready, rather than waiting to collect them all), then the multi-turn evaluation scenarios (respond to each in character — this is where memory, governance-under-pressure and sycophancy-resistance are measured), then \`done: true\`. Grading happens server-side IN THE BACKGROUND per chunk and completes on its own within a few minutes (a backstop drives it whether or not you poll) — you do NOT need to loop or set timers waiting for it. Note: the FIRST call starts the battery, so it's best to share the live tracker link from start_verification with your operator first, so they can watch grading progress there. Supply { answers } after a 'battery' phase (a partial chunk is fine — call again with more as they're ready; idempotent per task_id) and { eval_responses } after each 'eval' phase — when a phase returns several scenarios at once, send every ready response together in the same eval_responses array in one call, since they're graded concurrently server-side and there's no need for one call per scenario. Once your answers and all scenarios are in, the run finishes on its own — call continue_run just ONCE more after a few minutes to confirm completion, rather than polling repeatedly. Each call's combined answers/eval_responses payload is capped around ${MAX_CONTINUE_RUN_BYTES} bytes (K-43a) — a call over that limit gets back a 413 naming the exact cap; split into smaller chunks and resend only what didn't go through, never the same oversized payload unmodified. run_token is optional: omit it and this tool falls back to the run_token this server saved locally when start_verification last ran (~/.verigent/state.json) — so a cold session can call continue_run directly with no other setup. If nothing was saved, pass run_token explicitly or call resume_run.`,
   {
-    run_token: z.string().describe("Run token from start_verification"),
+    run_token: z.string().optional().describe("Run token from start_verification. Optional — omitted, falls back to the run_token this server saved locally at start_verification."),
     answers: z.array(z.object({
       task_id: z.string().describe("Task ID from the battery phase"),
       answer: z.string().optional().describe("The agent's answer to this task"),
@@ -273,17 +289,68 @@ server.tool(
     })).optional().describe("Multi-turn evaluation responses — supply after an 'eval' phase, one entry per scenario_id. Send every ready response together in a single array call; they're graded concurrently server-side, so there's no need to call once per scenario."),
   },
   async ({ run_token, answers, eval_responses }) => {
-    const body: Record<string, any> = { run_token };
+    // VG-211: fall back to the locally saved run_token (from start_verification, or refreshed by
+    // resume_run) when the caller didn't pass one — lets a cold session call continue_run directly.
+    const token = resolveRunToken(run_token, loadRunState());
+    if (!token) {
+      return { content: [{ type: "text" as const, text: JSON.stringify({ error: "no_run_token", detail: "No run_token was passed and none is saved locally. Call start_verification to begin a run, call resume_run, or pass run_token explicitly." }, null, 2) }] };
+    }
+    const body: Record<string, any> = { run_token: token };
     if (answers) body.answers = answers;
     if (eval_responses) body.eval_responses = eval_responses;
-    const result = await api("/api/run-next", {
+    // K-43a: apiCall (not the plain api() helper) so a 413 is visible by status, not just by
+    // shape — the JSON body is still passed through verbatim below either way, and this tool never
+    // retries a call on its own, so the oversized payload is never resent unmodified.
+    const { status, json: result } = await apiCall(API, "/api/run-next", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (status === 413) {
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    }
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
+  }
+);
+
+// ── resume_run ───────────────────────────────────────────────────
+// VG-211: recovers a run after a cold session (fresh process, restarted MCP server) using the
+// client_nonce + run_token start_verification saved locally (src/lib/state.ts). continue_run also
+// falls back to the same saved run_token on its own, so calling resume_run first is optional —
+// it's here for the cases that want an explicit status check (queued/grading/complete) before
+// deciding what to do next, and for recovering the tracker link if it was lost.
+server.tool(
+  "resume_run",
+  "Resume a verification run after a cold session, using the run_token + client_nonce this server saved locally when start_verification last ran (~/.verigent/state.json, mode 0600). Endpoint: POST /api/free/resume. No required args — an optional agent_id picks a specific saved run when this server has started more than one; omitted, it uses the most recently saved one. On success, follow next_action (continue_run to keep driving the run, or get_result once it's complete) — continue_run also picks up this same saved run_token on its own, so a cold session can just call continue_run directly without calling resume_run first. If nothing is saved, or the server reports the run gone (no_open_run) or its resume window closed (expired), this tells you to call start_verification instead.",
+  {
+    agent_id: z.string().optional().describe("Agent ID to resume (optional — defaults to the most recently saved run on this server)"),
+  },
+  async ({ agent_id }) => {
+    const saved = loadRunState(agent_id);
+    if (!saved) {
+      return { content: [{ type: "text" as const, text: JSON.stringify({ error: "no_saved_state", detail: "No run saved locally to resume. Call start_verification to begin a new run." }, null, 2) }] };
+    }
+    const { status, json: result } = await apiCall(API, "/api/free/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: saved.agent_id, client_nonce: saved.client_nonce }),
+    });
+    const outcome = buildResumeOutcome(status, result, saved);
+    if (outcome.shouldClear) {
+      clearRunState(saved.agent_id);
+    } else if (result?.run_token) {
+      // Keep the local cache current in case the server refreshed anything on resume.
+      saveRunState({
+        agent_id: saved.agent_id,
+        client_nonce: saved.client_nonce,
+        run_token: result.run_token,
+        track_url: result.track_url ?? saved.track_url,
+        report_url: saved.report_url,
+      });
+    }
+    return { content: [{ type: "text" as const, text: outcome.text }] };
   }
 );
 
