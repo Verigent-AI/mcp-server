@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **chore(registry):** `mcpName: ai.verigent/mcp-server` in `package.json` (npm ownership proof for the
+  official MCP Registry) + `server.json` (registry manifest, npm package `verigent-mcp-server`, stdio).
+  Registry namespace `ai.verigent` is DNS-verified. Metadata only — no behaviour change.
+
 ## 0.7.14
 
 - **feat(resume) VG-211:** `start_verification` now persists its client_nonce + agent_id +
