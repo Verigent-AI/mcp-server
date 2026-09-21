@@ -156,7 +156,7 @@ test('every content block continue_run and get_tasks return is passed through gu
 });
 
 test('src/lib/content.ts is imported for the size-guard and dimension-chunking helpers', () => {
-  assert.match(src, /import \{ chunkTasksByDimension, guardBlockSize \} from ".\/lib\/content\.js";/);
+  assert.match(src, /import \{ chunkTasksByDimension, guardBlockSize, renderTaskBlocks \} from ".\/lib\/content\.js";/);
 });
 
 console.log(`\n✅ copy.test.mjs — ${n} assertions passed.\n`);
