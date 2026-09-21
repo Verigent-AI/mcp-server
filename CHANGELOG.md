@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.7.15
 
 - **chore(registry):** `mcpName: ai.verigent/mcp-server` in `package.json` (npm ownership proof for the
   official MCP Registry) + `server.json` (registry manifest, npm package `verigent-mcp-server`, stdio).
-  Registry namespace `ai.verigent` is DNS-verified. Metadata only — no behaviour change.
+  Registry namespace `ai.verigent` is DNS-verified.
+- **fix(deps):** `zod` declared explicitly (was resolving transitively via the MCP SDK).
+- **feat(declare):** optional `harness_version` on `start_verification` / `probe_start` (env `VERIGENT_HARNESS_VERSION`) and per-task `usage` `{input_tokens, output_tokens, context_tokens}` on `submit_answers` / `continue_run` — declared, never verified, never scored.
+- **fix(tasks):** `renderTaskBlocks` pages a dimension into as many blocks as needed and serves an oversize task as ordered PARTS — no task is ever cut by the 20k-char guard (two `degradation_resistance` tasks were scoring zero).
+- **copy:** retired "swap detection" wording on `model` → declared-not-verified; README lead re-centred on cross-harness comparison + a stranger-verifiable record.
 
 ## 0.7.14
 

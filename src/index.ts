@@ -8,7 +8,7 @@ import { apiCall } from "./lib/api.js";
 import { saveRunState, loadRunState, clearRunState } from "./lib/state.js";
 import { resolveRunToken, buildResumeOutcome } from "./lib/resume.js";
 import { formatByteLimit, pickLimitBytes } from "./lib/format.js";
-import { chunkTasksByDimension, guardBlockSize } from "./lib/content.js";
+import { chunkTasksByDimension, guardBlockSize, renderTaskBlocks } from "./lib/content.js";
 
 // VG-194 (K-18b stranger code read): VERIGENT_API_URL used to silently redirect ALL egress to
 // whatever host was set. Now it's refused unless verigent.ai (exact host, HTTPS) or the operator
@@ -57,7 +57,8 @@ server.tool(
   {
     agent_id: z.string().describe("Unique identifier for this agent (e.g. 'my-agent-v1')"),
     display_name: z.string().optional().describe("Human-readable name for the public registry entry — worth agreeing with your operator"),
-    model: z.string().describe("REQUIRED. The model powering this agent (e.g. 'claude-opus-4'). It's just a declaration — nothing is written. It makes the harness-delta measurable (your construction vs the stock model), keeps the VG key's provenance current, and lets swap detection work."),
+    model: z.string().describe("REQUIRED. The model powering this agent (e.g. 'claude-opus-4'). It's just a declaration — never verified, never scored, never in the VG key. It makes the harness-delta measurable (your construction vs the naked model) and keeps your record's models-observed line true."),
+    harness_version: z.string().max(40).optional().describe("Your harness build version — a tag, a semver, a git sha (e.g. 'v12'). Optional. Declared, never verified; it keys your record's VERSION DELTA (current declared version vs the previous one) and groups History by version. Defaults to VERIGENT_HARNESS_VERSION from the server env."),
     base_framework: z.enum(["claude-code", "langgraph", "crewai", "autogen", "custom", "none"]).describe("REQUIRED. The harness this agent is built on. Powers the harness-delta (what your construction adds over the stock model). Built on your own harness → 'custom'. A NAKED MODEL with no harness → 'none'. It's just a declaration — no penalty, nothing written."),
     tools_available: z.array(z.string()).optional().describe("Tools this agent has access to (self-declared context)"),
     network: z.boolean().optional().describe("Whether this agent has network access (self-declared context)"),
@@ -68,12 +69,14 @@ server.tool(
     context_window: z.number().int().nonnegative().optional().describe("The model's context-window ceiling in tokens, e.g. 200000 or 1000000 (self-declared)"),
     workspace_bytes: z.number().int().nonnegative().optional().describe("Size of this agent's working files/config footprint in bytes (self-declared)"),
   },
-  async ({ agent_id, display_name, model, base_framework, tools_available, network, skills_count, mcp_server_count, context_window, workspace_bytes }) => {
+  async ({ agent_id, display_name, model, harness_version, base_framework, tools_available, network, skills_count, mcp_server_count, context_window, workspace_bytes }) => {
     const client_nonce = randomHex(16);
     const body: Record<string, any> = { agent_id, client_nonce };
     if (display_name) body.display_name = display_name;
     // model + base_framework are REQUIRED (Ant 2026-08-21) → always sent. anon-start enforces them.
     body.run_conditions = { model, base_framework };
+    const hv = (harness_version || ENV_HARNESS_VERSION || "").trim().slice(0, 40);
+    if (hv) body.run_conditions.harness_version = hv;
     if (tools_available) body.run_conditions.tools_available = tools_available;
     if (network !== undefined) body.run_conditions.network = network;
     // Declared vitals — fold whichever were provided into run_conditions; the run endpoint persists
@@ -170,11 +173,11 @@ server.tool(
     }
     if (dimension) {
       const page = byDim.get(dimension) || [];
+      // Kit walk 2026-09-22: a dimension page is rendered by renderTaskBlocks — as many blocks as it
+      // needs, oversized tasks served in ordered parts — so no task is ever cut (degradation_resistance
+      // serves near-full-context filler by design and was losing two of four tasks to the guard).
       return {
-        content: [guardBlockSize(header), guardBlockSize({
-          type: "text" as const,
-          text: `## ${dimension} (${page.length} of ${allTasks.length} total tasks)\n` + JSON.stringify(page, null, 2),
-        })],
+        content: [guardBlockSize(header), ...renderTaskBlocks(dimension, page)],
       };
     }
     const dims = [...byDim.keys()];
@@ -182,10 +185,7 @@ server.tool(
       content: [
         guardBlockSize(header),
         { type: "text" as const, text: `${allTasks.length} tasks across ${dims.length} dimensions: ${dims.join(", ")}` },
-        ...dims.map((d) => guardBlockSize({
-          type: "text" as const,
-          text: `## ${d} (${byDim.get(d)!.length} tasks)\n` + JSON.stringify(byDim.get(d), null, 2),
-        })),
+        ...dims.flatMap((d) => renderTaskBlocks(d, byDim.get(d)!)),
       ],
     };
   }
@@ -251,6 +251,11 @@ server.tool(
       passed: z.boolean().optional().describe("Set true to pass on this task (scores 0, no penalty)"),
       declined: z.boolean().optional().describe("Set true to decline this task (e.g. safety tripwire)"),
       reason: z.string().optional().describe("Reason for declining"),
+      usage: z.object({
+        input_tokens: z.number().int().nonnegative().optional(),
+        output_tokens: z.number().int().nonnegative().optional(),
+        context_tokens: z.number().int().nonnegative().optional(),
+      }).optional().describe("Your own token usage for THIS task, as your runtime reports it (optional). Declared, never verified, never scored: it feeds the report's cost-overhead read — your tokens per task against the naked model's measured tokens on the same battery."),
     })).describe("Array of task answers"),
     recall_response: z.string().optional().describe("Recall code from a previous verification run (for cross-session memory testing)"),
   },
@@ -283,6 +288,11 @@ server.tool(
       passed: z.boolean().optional().describe("Set true to pass on this task (scores 0, no penalty)"),
       declined: z.boolean().optional().describe("Set true to decline (e.g. safety tripwire)"),
       reason: z.string().optional().describe("Reason for declining"),
+      usage: z.object({
+        input_tokens: z.number().int().nonnegative().optional(),
+        output_tokens: z.number().int().nonnegative().optional(),
+        context_tokens: z.number().int().nonnegative().optional(),
+      }).optional().describe("Your own token usage for THIS task, as your runtime reports it (optional). Declared, never verified, never scored: it feeds the report's cost-overhead read — your tokens per task against the naked model's measured tokens on the same battery."),
     })).optional().describe("Battery answers — supply after the 'battery' phase, one entry per task_id"),
     eval_responses: z.array(z.object({
       scenario_id: z.string().describe("scenario_id from the 'eval' phase"),
@@ -481,6 +491,10 @@ server.tool(
 // and nothing else (no payments, no signing, no sending, no settings).
 const ENV_HANDLE = process.env.VERIGENT_HANDLE || "";
 const ENV_PULL_TOKEN = process.env.VERIGENT_PULL_TOKEN || "";
+// DECLARED harness build version (Verigent spec 20260921 item A): set VERIGENT_HARNESS_VERSION in this
+// server's env (npx verigent <handle> <token> --harness-version <v>) and it rides on every probe_start
+// and start_verification. Declared, never verified — it keys the record's version delta.
+const ENV_HARNESS_VERSION = (process.env.VERIGENT_HARNESS_VERSION || "").trim().slice(0, 40);
 
 server.tool(
   "probe_start",
@@ -488,10 +502,11 @@ server.tool(
   {
     handle: z.string().optional().describe("Agent handle (defaults to VERIGENT_HANDLE from the server config)"),
     pull_token: z.string().optional().describe("Pull token (defaults to VERIGENT_PULL_TOKEN from the server config)"),
-    model: z.string().optional().describe("The model you are running on right now (e.g. 'claude-fable-5'). Optional — your call. Declaring it keeps your public record's 'currently running' line accurate and lets swap detection work; leave it off and the pull still works normally. No reminder, no penalty."),
+    model: z.string().optional().describe("The model you are running on right now (e.g. 'claude-fable-5'). Optional — your call. Declaring it keeps your public record's 'currently running' line accurate (declared, never verified); leave it off and the pull still works normally. No reminder, no penalty."),
     probe_id: z.string().optional().describe("Specific challenge to run (optional; omit for a random draw)"),
+    harness_version: z.string().max(40).optional().describe("Your harness build version for THIS pull — a tag, a semver, a git sha. Optional; defaults to VERIGENT_HARNESS_VERSION from the server env. Declared, never verified; each pull's statement is stamped on the score it produces so your record reads a version delta (current declared version vs the previous)."),
   },
-  async ({ handle, pull_token, model, probe_id }) => {
+  async ({ handle, pull_token, model, probe_id, harness_version }) => {
     const h = handle || ENV_HANDLE;
     const t = pull_token || ENV_PULL_TOKEN;
     if (!h || !t) {
@@ -499,6 +514,8 @@ server.tool(
     }
     const body: Record<string, any> = { handle: h, pull_token: t };
     if (model) body.model = model;
+    const hv = (harness_version || ENV_HARNESS_VERSION || "").trim().slice(0, 40);
+    if (hv) body.harness_version = hv;
     if (probe_id) body.probe_id = probe_id;
     const result = await api("/api/probe/start", {
       method: "POST",

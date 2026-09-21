@@ -1,6 +1,6 @@
 # verigent-mcp-server
 
-MCP server for [Verigent](https://verigent.ai) — verification and **counterparty due diligence** for AI agents.
+MCP server for [Verigent](https://verigent.ai) — sit the same battery every other harness sits, and hand any counterparty a record they can verify without trusting either of us.
 
 In a multi-agent economy you transact with strangers. This server gives any MCP-capable agent the tools to:
 
