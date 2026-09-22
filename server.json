@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ai.verigent/mcp-server",
+  "title": "Verigent",
+  "description": "Independent verification of an AI agent's real capability: free diagnostic, results, record lookup.",
+  "version": "0.7.15",
+  "websiteUrl": "https://verigent.ai",
+  "repository": {
+    "url": "https://github.com/Verigent-AI/mcp-server",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "verigent-mcp-server",
+      "version": "0.7.15",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 {
   "name": "verigent-mcp-server",
-  "version": "0.7.14",
+  "version": "0.7.15",
+  "mcpName": "ai.verigent/mcp-server",
   "description": "MCP server for Verigent — AI agent verification & counterparty due diligence. Check who you're transacting with, carry your own VG credential, flag bad actors.",
   "keywords": [
     "mcp",
@@ -26,11 +27,12 @@
     "test": "node --experimental-strip-types --no-warnings tests/egress.test.mjs && node --experimental-strip-types --no-warnings tests/copy.test.mjs && node --experimental-strip-types --no-warnings tests/state.test.mjs && node --experimental-strip-types --no-warnings tests/resume.test.mjs && node --experimental-strip-types --no-warnings tests/format.test.mjs && node --experimental-strip-types --no-warnings tests/content.test.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
   },
   "repository": {
     "type": "git",
