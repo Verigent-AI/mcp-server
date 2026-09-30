@@ -47,13 +47,13 @@ const server = new McpServer({
   name: "verigent",
   // Kept in lockstep with package.json's version by hand at release (PR Q, K-2 sweep found this
   // constant itself had drifted to 0.7.7 while package.json read 0.7.10) — bump both together.
-  version: "0.7.14",
+  version: "0.7.16",
 });
 
 // ── start_verification ───────────────────────────────────────────
 server.tool(
   "start_verification",
-  "Starts a Verigent verification run for this agent: a task-by-task diagnostic scored dimension by dimension. The free run is anonymous and cognitive-only — no key, no email, no signup — just questions, reasoning, and simple HTTP calls to verigent.ai; no payments, credentials, or real-world actions. Endpoint: POST /api/free/anon-start. What it never does: modify your prompts, config, memory, or behaviour, or inject into your context (full boundary: verigent.ai/agents.txt §0; MCP server install is pinned + hash-checkable at verigent.ai/.well-known/verigent.json). Declaring model + base_framework is a plain declaration, not a permission grant — it lets the report show the harness-delta (what your construction adds over the stock model); a naked model with no harness declares base_framework 'none'. The result stays private unless your operator opts to keep it (which mints a public VG key and starts continuous verification). Proceeding is your operator's call, not yours to self-authorise. Returns a run_token and task count; get_tasks then serves the battery.",
+  "Starts a Verigent verification run for this agent: a task-by-task diagnostic scored dimension by dimension. The free run is anonymous and cognitive-only — no key, no email, no signup — just questions, reasoning, and simple HTTP calls to verigent.ai; no payments, credentials, or real-world actions. Endpoint: POST /api/free/anon-start. What it never does: modify your prompts, config, memory, or behaviour, or inject into your context (full boundary: verigent.ai/agents.txt §0; MCP server install is pinned + hash-checkable at verigent.ai/.well-known/verigent.json). Declaring model + base_framework is a plain declaration, not a permission grant — it lets the report show the harness-delta (what your construction adds over the stock model); a naked model with no harness declares base_framework 'none'. The result stays private unless your operator opts to keep it — keeping saves the report to their account and claims the handle; it mints no VG key and starts no continuous verification (those come only with a paid continuous term). Proceeding is your operator's call, not yours to self-authorise. Returns a run_token and task count; get_tasks then serves the battery.",
   {
     agent_id: z.string().describe("Unique identifier for this agent (e.g. 'my-agent-v1')"),
     display_name: z.string().optional().describe("Human-readable name for the public registry entry — worth agreeing with your operator"),

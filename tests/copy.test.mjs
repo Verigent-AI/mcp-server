@@ -91,8 +91,16 @@ test('the Regression 2026-08-18 source comment is left untouched', () => {
 
 // ── version lockstep ────────────────────────────────────────────────
 
-test('the in-code McpServer version constant is 0.7.14', () => {
-  assert.match(src, /version: "0\.7\.14"/);
+test('the in-code McpServer version constant is 0.7.16', () => {
+  assert.match(src, /version: "0\.7\.16"/);
+});
+
+// CD-16 (journey spec F3, Ant 2026-10-01): the tool text agents read on the free path must not promise
+// that keeping mints a key or starts continuous verification (R0930: those are continuous-only, at
+// payment/confirm).
+test('start_verification: keeping mints no key and starts no continuous verification', () => {
+  assert.doesNotMatch(src, /mints a public VG key and starts continuous verification/);
+  assert.match(src, /it mints no VG key and starts no continuous verification/);
 });
 
 // ── VG-211: resume_run + persisted run_token, K-43a: chunk-size limit ──────

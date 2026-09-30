@@ -3,7 +3,7 @@
   "name": "ai.verigent/mcp-server",
   "title": "Verigent",
   "description": "Independent verification of an AI agent's real capability: free diagnostic, results, record lookup.",
-  "version": "0.7.15",
+  "version": "0.7.16",
   "websiteUrl": "https://verigent.ai",
   "repository": {
     "url": "https://github.com/Verigent-AI/mcp-server",
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "verigent-mcp-server",
-      "version": "0.7.15",
+      "version": "0.7.16",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

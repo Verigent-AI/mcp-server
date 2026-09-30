@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.16
+
+- **copy (CD-16, journey spec 2026-10-01):** `start_verification`'s description no longer says keeping a
+  result "mints a public VG key and starts continuous verification" — keeping saves the report and claims
+  the handle; the key, anchor and listing come only with a paid continuous term (Ant 2026-09-30 R0930 /
+  08:37). Agents read this text on the free path, so it must not over-promise.
+- **chore:** the in-code `McpServer` version constant was still `0.7.14` while `package.json` read `0.7.15`
+  (the lockstep the K-2 sweep asked for had drifted again) — both now `0.7.16`, pinned by `tests/copy.test.mjs`.
+
 ## 0.7.15
 
 - **chore(registry):** `mcpName: ai.verigent/mcp-server` in `package.json` (npm ownership proof for the
