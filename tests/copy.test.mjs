@@ -91,8 +91,16 @@ test('the Regression 2026-08-18 source comment is left untouched', () => {
 
 // ── version lockstep ────────────────────────────────────────────────
 
-test('the in-code McpServer version constant is 0.7.16', () => {
-  assert.match(src, /version: "0\.7\.16"/);
+test('the in-code McpServer version constant matches package.json (lockstep, derived — never hand-pinned)', () => {
+  const pkgVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  assert.ok(src.includes(`version: "${pkgVersion}"`), `src/index.ts McpServer version != package.json ${pkgVersion}`);
+});
+
+// F-setup-2 (fleet test 2026-11-05): "Owner Controls" no longer exists on the report, and the report no longer shows
+// the pull token — the auth errors point at the setup command on the report's setup screen instead.
+test('no message points to the retired "Owner Controls"', () => {
+  assert.ok(!/Owner Controls/.test(src));
+  assert.ok(/setup screen on the agent's report/.test(src));
 });
 
 // CD-16 (journey spec F3, Ant 2026-10-01): the tool text agents read on the free path must not promise

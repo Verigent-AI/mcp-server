@@ -47,7 +47,7 @@ const server = new McpServer({
   name: "verigent",
   // Kept in lockstep with package.json's version by hand at release (PR Q, K-2 sweep found this
   // constant itself had drifted to 0.7.7 while package.json read 0.7.10) — bump both together.
-  version: "0.7.16",
+  version: "0.7.17",
 });
 
 // ── start_verification ───────────────────────────────────────────
@@ -510,7 +510,7 @@ server.tool(
     const h = handle || ENV_HANDLE;
     const t = pull_token || ENV_PULL_TOKEN;
     if (!h || !t) {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ error: "No handle/pull_token — set VERIGENT_HANDLE and VERIGENT_PULL_TOKEN in this MCP server's env (both are in Owner Controls on your report page), or pass them as arguments." }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ error: "No handle/pull_token — set VERIGENT_HANDLE and VERIGENT_PULL_TOKEN in this MCP server's env (the setup command on the setup screen of the agent's report writes both), or pass them as arguments." }) }] };
     }
     const body: Record<string, any> = { handle: h, pull_token: t };
     if (model) body.model = model;
@@ -523,7 +523,7 @@ server.tool(
       body: JSON.stringify(body),
     });
     // Turn a bare auth rejection into an actionable one. The usual cause isn't a "bad" token —
-    // it's the CONFIGURED token being stale (regenerated in Owner Controls) or SHADOWED by another
+    // it's the CONFIGURED token being stale (an older config) or SHADOWED by another
     // MCP scope. `claude mcp add` writes LOCAL scope by default, which overrides a project .mcp.json;
     // if the two hold different tokens, the loop authenticates with whichever scope wins, not the one
     // you just set. Passing creds explicitly here proves whether the env is the problem.
@@ -535,8 +535,8 @@ server.tool(
       return { content: [{ type: "text" as const, text: JSON.stringify({
         ...result,
         hint: usedExplicit
-          ? "Auth failed even with an explicit token — this token is wrong or revoked. Copy the current pull_token from Owner Controls on your report page and update your ONE config source."
-          : "Auth failed on the configured token. Most likely it's stale (regenerated in Owner Controls) or shadowed by another MCP scope. Fix: keep ONE source of truth — put the current pull_token in your project .mcp.json and remove any local-scope override (`claude mcp remove verigent -s local`). To confirm it's the env and not the token, retry probe_start passing handle + pull_token explicitly.",
+          ? "Auth failed even with an explicit token — this token is wrong or revoked. Re-run the setup command from the setup screen on the agent's report: it writes the current token into ONE config source."
+          : "Auth failed on the configured token. Most likely it's stale (an older config) or shadowed by another MCP scope. Fix: keep ONE source of truth — put the current pull_token in your project .mcp.json and remove any local-scope override (`claude mcp remove verigent -s local`). To confirm it's the env and not the token, retry probe_start passing handle + pull_token explicitly.",
       }, null, 2) }] };
     }
     return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };

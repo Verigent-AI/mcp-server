@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.17
+
+- **copy (fleet test F-setup-2, 2026-11-05):** the auth-error messages pointed owners to "Owner Controls on your
+  report page", which no longer exists, and to copying the pull token, which the report no longer shows (the setup
+  command carries a single-use setup code since cli 0.10.15). They now say: re-run the setup command from the setup
+  screen on the agent's report, which writes the current token into one config source.
+
 ## 0.7.16
 
 - **copy (CD-16, journey spec 2026-10-01):** `start_verification`'s description no longer says keeping a
